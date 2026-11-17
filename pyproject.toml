@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "baidu-share-downloader"
+version = "0.1.0"
+description = "Review-first Baidu share video and cover downloader"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["requests>=2.32.4,<3", "Pillow>=11,<14"]
+
+[project.scripts]
+baidu-download = "baidu_downloader.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/baidu_downloader"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"THIRD-PARTY-LICENSE.txt" = "baidu_downloader/THIRD-PARTY-LICENSE.txt"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "tests/", "docs/", "assets/readme/", "README.md", "MEMORY.md", "THIRD-PARTY-LICENSE.txt", "pyproject.toml"]
+
+[project.urls]
+Homepage = "https://github.com/sys98/baidu-download"
+Repository = "https://github.com/sys98/baidu-download"

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="title desc">
+  <title id="title">Baidu Download: scan, plan, confirm and download</title>
+  <desc id="desc">Scan produces review.md. Plan binds selected file IDs in plan-review.md. Download begins only after human confirmation and preserves original filenames.</desc>
+  <rect width="1200" height="300" rx="16" fill="#111827"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+    <text x="48" y="52" font-size="26" fill="#94A3B8">$ baidu-download</text>
+    <g id="scan-step">
+      <text x="64" y="126" font-size="22" fill="#94A3B8">01</text>
+      <text x="64" y="184" font-size="52" font-weight="600" fill="#60A5FA">scan</text>
+      <text x="64" y="245" font-size="24" fill="#F8FAFC">review.md</text>
+    </g>
+    <path d="M 330 168 H 410 M 398 156 L 410 168 L 398 180" fill="none" stroke="#94A3B8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <g id="plan-step">
+      <text x="466" y="126" font-size="22" fill="#94A3B8">02</text>
+      <text x="466" y="184" font-size="52" font-weight="600" fill="#60A5FA">plan</text>
+      <text x="466" y="245" font-size="24" fill="#F8FAFC">plan-review.md</text>
+    </g>
+    <g id="approval-boundary">
+      <path d="M 730 168 H 838 M 826 156 L 838 168 L 826 180" fill="none" stroke="#FBBF24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M 780 142 V 194" fill="none" stroke="#FBBF24" stroke-width="4"/>
+      <text x="730" y="122" font-size="22" fill="#FBBF24">confirm</text>
+    </g>
+    <g id="download-step">
+      <text x="878" y="126" font-size="22" fill="#94A3B8">03</text>
+      <text x="878" y="184" font-size="48" font-weight="600" fill="#60A5FA">download</text>
+      <text x="878" y="245" font-size="24" fill="#F8FAFC">&lt;title&gt;/&lt;file&gt;</text>
+    </g>
+  </g>
+</svg>
