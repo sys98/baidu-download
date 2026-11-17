@@ -1,18 +1,18 @@
-# Baidu Download
+# 百度网盘下载工具
 
-**See what is shared. Choose what to keep. Download only that plan.**
+**先查看分享内容，再选择文件，确认后按清单下载。**
 
-A Python CLI for downloading selected videos and covers from Baidu Netdisk shares. Inspect one link or a named batch, approve exact files, then resume interrupted downloads with progress and media checks.
+通过百度网盘分享链接下载指定视频和封面的 Python 命令行工具。支持单链接和批量任务，先列出候选文件供人工确认，再执行下载；中断后可续传，并记录下载速度、校验媒体文件。
 
 <p>
-  <img src="./assets/readme/workflow.svg" width="100%" alt="Baidu Download workflow: scan creates a review, plan binds selected file IDs, and download requires confirmation before saving media.">
+  <img src="./assets/readme/workflow.svg" width="100%" alt="下载流程：scan 扫描并生成候选清单，plan 绑定选中的文件，download 经人工确认后下载到对应剧名目录。">
 </p>
 
-**Verified locally:** 16 offline behavior tests, including the full CLI workflow and a real local MP4 probe. Tested on Python 3.12 and 3.14, including an isolated wheel installation. These checks are separate from live provider availability; they do not promise a download speed.
+**本地验证情况：**16 项离线测试通过，覆盖完整命令行流程和真实本地 MP4 文件探测；已在 Python 3.12、3.14 环境验证，并完成独立安装包测试。这些检查不代表网盘接口始终可用，也不承诺下载速度。
 
-## Start here
+## 安装与环境检查
 
-Requires **Python 3.11+**, **macOS or Linux**, and a destination with **hard-link support**, such as APFS or ext4. ExFAT/FAT destinations are unsupported. Video checks require **ffprobe**; fetching the pinned public protocol reference uses **GitHub CLI** or supplied stdin data.
+需要 **Python 3.11+**、**macOS 或 Linux**，以及**支持硬链接的下载目录**，例如 APFS、ext4。暂不支持 ExFAT/FAT。视频校验需要 **ffprobe**；读取固定版本的公开客户端协议参考资料需要 **GitHub CLI**，也可通过标准输入提供该资料。
 
 ```sh
 git clone https://github.com/sys98/baidu-download.git
@@ -21,13 +21,13 @@ uv tool install .
 baidu-download doctor
 ```
 
-`doctor` checks local prerequisites without signing in or making network requests. Install [uv](https://docs.astral.sh/uv/getting-started/installation/), [ffmpeg/ffprobe](https://ffmpeg.org/download.html), and [GitHub CLI](https://cli.github.com/) as needed. Cover-only downloads do not require ffprobe, although `doctor` reports it as missing.
+`doctor` 只检查本机环境，不登录账号、不发送网络请求。请按需安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)、[ffmpeg/ffprobe](https://ffmpeg.org/download.html) 和 [GitHub CLI](https://cli.github.com/)。仅下载封面时不需要 ffprobe，但 `doctor` 仍会报告它是否缺失。
 
-## One link, one reviewed plan
+## 单链接下载：扫描、选择、确认
 
-### 1. Inspect the share
+### 1. 扫描分享内容
 
-Run the first two lines and enter your share URL and preferred drama title at the prompts, then scan:
+执行前两行时，分别输入分享链接和希望使用的剧名，然后运行扫描命令：
 
 ```sh
 read -r SHARE_URL
@@ -35,11 +35,11 @@ read -r TITLE
 baidu-download scan --url "$SHARE_URL" --title "$TITLE" --job ./job
 ```
 
-Open `job/review.md`. Scanning enumerates nested directories and all pages; it downloads no media and makes no account-side copies. Account credentials and extraction codes use hidden prompts when not supplied through the process environment.
+打开 `job/review.md` 查看候选清单。扫描会遍历嵌套目录和所有分页，不下载媒体文件，也不转存到自己的网盘。账号凭证和提取码未通过进程环境提供时，使用隐藏输入提示获取。
 
-### 2. Choose the videos and covers
+### 2. 选择视频和封面
 
-Edit the generated `job/selection.json`, which starts empty. After verifying that group 1 is the intended video directory, a selection can look like this:
+编辑自动生成的 `job/selection.json`，初始选择为空。确认第 1 组确实是目标视频目录后，可以按下面的方式选择：
 
 ```json
 [
@@ -47,57 +47,57 @@ Edit the generated `job/selection.json`, which starts empty. After verifying tha
 ]
 ```
 
-Use `file_ids` instead of a whole group to select specific videos. Add image IDs from the review to `cover_ids` for one or more cover variants.
+只下载部分视频时，使用 `file_ids` 指定文件，不必选择整个组。需要封面时，把候选清单中的图片 ID 填入 `cover_ids`，可同时保留多个封面版本。
 
-**Co-location is a candidate signal, not proof of relevance.** Names and episode numbers do not select your files. Unrelated videos in the same directory remain visible for human review.
+**文件放在同一目录，只能作为候选线索，不能证明内容相关。** 工具不会根据文件名或集数编号自动认定目标视频；同目录中的无关视频仍需人工排除。
 
-### 3. Confirm and download
+### 3. 确认清单并下载
 
 ```sh
 baidu-download plan --job ./job --destination ./media
-# Read job/plan-review.md before the next command.
+# 执行下一条命令前，先查看 job/plan-review.md。
 baidu-download download --job ./job --workers 4
 ```
 
-Type the displayed `DOWNLOAD <plan_id>` phrase to approve the exact scope. The tool checks live file identities, sizes and types before transferring media. Files keep their original names under `media/<title>/`.
+输入工具显示的 `DOWNLOAD <plan_id>` 确认短语，批准本次具体范围。传输前会重新核对网盘文件的身份、大小和类型。文件保留原名，保存到 `media/<剧名>/`。
 
-An unchanged approved plan can resume with the same download command. A changed selection, destination or source file requires renewed review. Only verified files are reused; unrelated files and partials are never overwritten.
+已经批准且范围未变的任务，可用同一条下载命令续跑。选择范围、目标目录或源文件变化后，需要重新审阅。只复用有匹配校验记录的完整文件，不覆盖无关文件或来源不明的临时文件。
 
-## Keep track of the run
+## 查看进度、速度与校验结果
 
 ```sh
 baidu-download status --job ./job
 baidu-download verify --job ./job --deep
 ```
 
-- Download progress reports current-run transferred bytes and interval MB/s.
-- `speed.csv` keeps timing samples; reused files and pre-existing partial bytes do not inflate transfer speed.
-- `verify --deep` probes video streams and fully decodes/checksums images. It is not a frame-by-frame video decode.
-- Up to four isolated sessions download concurrently; provider failures stop new work, while owned partial files remain resumable.
+- 下载进度显示本轮新接收字节数和分段速度，单位为 MB/s。
+- `speed.csv` 保留测速记录；复用的文件、续传前已有的字节不会计入本轮传输量。
+- `verify --deep` 会探测视频流，并对图片完整解码、校验哈希；不包含视频逐帧完整解码。
+- 最多使用 4 个独立会话并发下载；网盘服务返回异常时停止派发新任务，已确认归属的临时文件可以续传。
 
-## Use a batch or another script
+## 批量任务与脚本调用
 
-A batch is a JSON list of named shares with `title`, `share_url`, and optional `id`, `expected_episodes`, and `extraction_code`. Declared episode-count mismatches stay visible before approval.
+批量输入是一个 JSON 数组，每条包含 `title`、`share_url`，以及可选的 `id`、`expected_episodes`、`extraction_code`。声明集数与选中文件数不一致时，会在批准前明确列出。
 
 ```sh
 baidu-download scan --sources ./sources.json --job ./batch-job
 ```
 
-Then review and select files just as for a single link. See the [full usage guide](./docs/usage.md) for batch input, authentication, stdin protocol loading, Python functions, and recovery. No fundrive-baidu SDK installation or local SDK patch is required.
+后续审阅和选择步骤与单链接一致。批量格式、凭证输入、标准输入协议资料、Python 函数和故障恢复，请参阅[完整使用指南](./docs/usage.md)。运行时不需要安装 fundrive-baidu SDK，也不依赖对虚拟环境中的 SDK 文件打补丁。
 
-## Authentication and limits
+## 登录凭证与使用限制
 
-Account credentials come from hidden prompts or existing `BAIDU_BDUSS` and `BAIDU_STOKEN` process variables. Optional `BAIDU_SHARE_CODE` supplies an extraction code. The tool does not load `.env` files or browser credentials, and generated reports contain no account credentials or signed download URLs.
+账号凭证通过隐藏输入或已有的进程环境变量 `BAIDU_BDUSS`、`BAIDU_STOKEN` 提供；可选变量 `BAIDU_SHARE_CODE` 用于提供提取码。工具不自动读取 `.env` 或浏览器凭证，生成的报告不保存账号凭证和带签名的下载地址。
 
-The provider's client APIs can change or require account verification. The tool reports these failures instead of bypassing them, and does not automatically solve CAPTCHAs. Use it only for files you are authorized to access and download.
+网盘客户端接口可能变化，也可能要求账号验证。工具会报告这些失败，不自动识别验证码。请仅下载你有权访问和使用的文件。
 
-## Development and attribution
+## 开发与第三方声明
 
 ```sh
 uv run python -m unittest discover -s tests -v
 uv build
 ```
 
-Tests use temporary directories and mocked provider responses. The optional real-MP4 test also requires ffmpeg/ffprobe and is explicitly skipped when they are unavailable.
+测试使用临时目录和模拟的网盘响应。真实本地 MP4 测试还需要 ffmpeg/ffprobe；缺少这些工具时，会明确跳过该项测试。
 
-The public protocol reference is the [OpenList Baidu share plugin at a pinned commit](https://github.com/OpenListTeam/openlist-baidushare-plugin/tree/8515b0f7bfa715007c833d1374fdb10b65fcc217). Its MIT notice is retained in [THIRD-PARTY-LICENSE.txt](./THIRD-PARTY-LICENSE.txt). Remote source is parsed as data in memory, never executed or saved.
+公开协议参考资料来自[固定版本的 OpenList 百度分享插件](https://github.com/OpenListTeam/openlist-baidushare-plugin/tree/8515b0f7bfa715007c833d1374fdb10b65fcc217)，其 MIT 许可声明保留在 [THIRD-PARTY-LICENSE.txt](./THIRD-PARTY-LICENSE.txt)。远程源码仅在内存中作为数据解析，不执行、不落盘。

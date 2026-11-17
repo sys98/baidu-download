@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="title desc">
-  <title id="title">Baidu Download: scan, plan, confirm and download</title>
-  <desc id="desc">Scan produces review.md. Plan binds selected file IDs in plan-review.md. Download begins only after human confirmation and preserves original filenames.</desc>
+  <title id="title">百度网盘下载：扫描、选择、人工确认后下载</title>
+  <desc id="desc">scan 生成候选清单 review.md，plan 将所选文件绑定到 plan-review.md，download 经人工确认后下载，并保留原文件名。</desc>
   <rect width="1200" height="300" rx="16" fill="#111827"/>
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
     <text x="48" y="52" font-size="26" fill="#94A3B8">$ baidu-download</text>
@@ -18,12 +18,12 @@
     <g id="approval-boundary">
       <path d="M 730 168 H 838 M 826 156 L 838 168 L 826 180" fill="none" stroke="#FBBF24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M 780 142 V 194" fill="none" stroke="#FBBF24" stroke-width="4"/>
-      <text x="730" y="122" font-size="22" fill="#FBBF24">confirm</text>
+      <text x="730" y="122" font-family="PingFang SC, Noto Sans CJK SC, sans-serif" font-size="22" fill="#FBBF24">人工确认</text>
     </g>
     <g id="download-step">
       <text x="878" y="126" font-size="22" fill="#94A3B8">03</text>
       <text x="878" y="184" font-size="48" font-weight="600" fill="#60A5FA">download</text>
-      <text x="878" y="245" font-size="24" fill="#F8FAFC">&lt;title&gt;/&lt;file&gt;</text>
+      <text x="878" y="245" font-family="PingFang SC, Noto Sans CJK SC, sans-serif" font-size="24" fill="#F8FAFC">&lt;剧名&gt;/&lt;文件&gt;</text>
     </g>
   </g>
 </svg>

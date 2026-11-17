@@ -1,17 +1,18 @@
-# Project context
+# 项目上下文
 
-- Created on 2026-11-17 by extracting the proven structured API workflow into an independent Python CLI package. Runtime imports must not depend on historical workspace scripts, media, credentials, or modified SDK files.
-- Directory co-location identifies candidates only; filenames and numbering must not determine narrative relevance. Downloads require explicit file/group selection and plan-specific human confirmation. Approval is reusable only for an unchanged exact scope.
-- The repaired provider contracts use account sync's `no` field, preserve the leading `1` in share IDs, and percent-encode authorization JSON before signing. The pinned public protocol reference is parsed as data in memory and never executed or saved.
-- Scoped provider sessions enforce HTTPS, allowed provider domains, and TLS verification across redirects. Credentials and signed URLs must stay out of reports, logs, archives, and command arguments.
-- Receipts bind plan identity, destination, source identity, byte counts, and media evidence. Atomic no-overwrite publication uses hard links; require a supporting filesystem. An interrupted publication can recover its verified receipt.
-- Job mutation uses POSIX kernel locks and atomic JSON replacement. Concurrency is bounded to four isolated sessions. Current-run transferred bytes exclude already-present partial bytes and reused complete files.
-- The historical real download succeeded before packaging. Package acceptance uses offline fixtures plus real local media verification; do not describe it as a new live-provider download.
+- 文档语言：用户明确要求所有项目文档使用中文。保留命令、代码标识、文件名和第三方许可证原文；后续 README、使用指南、项目记忆及流程图说明均遵循此约定。
+- 项目于 2026-11-17 从已验证的结构化 API 下载流程整理为独立 Python 命令行包。运行时不能依赖历史工作区脚本、媒体、凭证或修改过的 SDK 文件。
+- 同目录只用于发现候选，文件名和编号不能决定内容是否相关。下载前必须明确选择文件或组，并进行与具体计划绑定的人工确认；只有范围完全未变时才能复用批准记录。
+- 已修复的协议差异：账号同步使用 `no` 字段，分享 ID 保留开头的 `1`，授权 JSON 在签名前进行百分号编码。固定版本的公开协议参考资料只在内存中作为数据解析，不执行、不落盘。
+- 独立网盘会话强制使用 HTTPS，检查允许的域名，并在重定向中保持 TLS 校验。凭证和签名下载地址不能出现在报告、日志、归档或命令行参数中。
+- 校验记录绑定计划、目标目录、源文件身份、字节数及媒体验证结果。通过硬链接原子发布文件，避免覆盖已有文件，因此下载目录必须支持硬链接。校验完成后发布中断的文件，可以根据记录恢复。
+- 任务修改使用 POSIX 内核锁，JSON 状态采用原子替换。最多 4 个独立会话并发。本轮传输量不包含续传前已有的字节和复用的完整文件。
+- 历史实际下载在工具打包前完成。工具验收采用离线响应和真实本地媒体校验，不应描述为重新验证了线上下载。
 
-## Repository publication
+## 仓库发布
 
-- The user authorized publishing this standalone project to https://github.com/sys98/baidu-download after improving the README. The repository was empty, public, and used main as its initial branch.
-- README is the concise project homepage; docs/usage.md retains the complete task-oriented guide. The static workflow in assets/readme/workflow.svg explains the real scan, plan, and confirmation boundary without generated art or fabricated metrics.
-- Only portable source, tests, documentation, and the third-party notice belong in this repository. Historical share lists, extraction codes, media, receipts, account credentials, and signed URLs must not be imported.
-- Source distributions include docs and README assets so local documentation links remain valid after extraction. Project URLs point to the user-authorized repository.
-- No AGENTS.md existed in the empty repository and no matching local governance template was available; user-provided rules govern this task.
+- 用户授权在完善 README 后发布到 https://github.com/sys98/baidu-download 。仓库最初为空、公开，初始分支为 `main`。
+- README 是简洁的项目首页，`docs/usage.md` 保留完整操作指南。`assets/readme/workflow.svg` 展示真实的扫描、计划及人工确认边界，不使用生成式图片或虚构指标。
+- 仓库只收录可移植源码、测试、文档及第三方声明。不能导入历史分享清单、提取码、媒体、下载记录、账号凭证或签名地址。
+- 源码发行包包含文档和 README 资源，解压后本地文档链接仍然有效。项目元数据中的仓库地址指向用户授权的仓库。
+- 空仓库最初没有 `AGENTS.md`，本地也没有匹配的治理模板；本任务遵循用户提供的项目规则。
