@@ -1,8 +1,8 @@
-# 百度网盘下载工具
+# 百度网盘下载与上传工具
 
-**先查看分享内容，再选择文件，确认后按清单下载。**
+**先查看分享内容，再选择文件，确认后按清单下载；上传前先校验额度。**
 
-通过百度网盘分享链接下载指定视频和封面的 Python 命令行工具。支持单链接和批量任务，先列出候选文件供人工确认，再执行下载；中断后可续传，并记录下载速度、校验媒体文件。
+通过百度网盘分享链接下载指定视频和封面的 Python 命令行工具，也可把本地文件上传到网盘指定目录。支持单链接和批量任务，先列出候选文件供人工确认，再执行下载；中断后可续传，并记录下载速度、校验媒体文件。上传走同样的审阅流程：列出确切清单、核对额度余量，确认后才分片传输。
 
 <p>
   <img src="./assets/readme/workflow.svg" width="100%" alt="下载流程：scan 扫描并生成候选清单，plan 绑定选中的文件，download 经人工确认后下载到对应剧名目录。">
@@ -112,4 +112,4 @@ uv build
 
 测试使用临时目录和模拟的网盘响应。真实本地 MP4 测试还需要 ffmpeg/ffprobe；缺少这些工具时，会明确跳过该项测试。
 
-公开协议参考资料来自[固定版本的 OpenList 百度分享插件](https://github.com/OpenListTeam/openlist-baidushare-plugin/tree/8515b0f7bfa715007c833d1374fdb10b65fcc217)，其 MIT 许可声明保留在 [THIRD-PARTY-LICENSE.txt](./THIRD-PARTY-LICENSE.txt)。远程源码仅在内存中作为数据解析，不执行、不落盘。
+公开协议参考资料来自[固定版本的 OpenList 百度分享插件](https://github.com/OpenListTeam/openlist-baidushare-plugin/tree/8515b0f7bfa715007c833d1374fdb10b65fcc217)，上传协议对照[固定版本的 BaiduPCS-Go](https://github.com/qjfoidnh/BaiduPCS-Go/tree/d827497caf359671eb4d21fac07ec3ac09d889e0)。两者许可声明均保留在 [THIRD-PARTY-LICENSE.txt](./THIRD-PARTY-LICENSE.txt)。远程源码仅在内存中作为数据解析，不执行、不落盘。
