@@ -22,8 +22,13 @@ import requests
 
 REFERENCE = "OpenListTeam/openlist-baidushare-plugin"
 REVISION = "8515b0f7bfa715007c833d1374fdb10b65fcc217"
+UPLOAD_REFERENCE = "qjfoidnh/BaiduPCS-Go@d827497caf359671eb4d21fac07ec3ac09d889e0 (baidupcs/upload.go, baidupcs/prepare.go)"
+UPLOAD_REVISION = "d827497caf359671eb4d21fac07ec3ac09d889e0"
 VIDEO = {".mp4", ".mkv", ".mov", ".avi", ".m4v", ".webm", ".ts", ".flv", ".wmv", ".mpeg", ".mpg"}
 IMAGE = {".png", ".jpg", ".jpeg", ".webp"}
+SLICE = 4*1024*1024          # 4 MB upload slices (fixed for non-vip accounts)
+SLICE_MD5_BYTES = 256*1024   # slice-md5 covers the first 256 KB of the file
+PCS_APP_ID = "250528"        # public web app id used by the pinned BaiduPCS-Go client
 
 
 class ProviderError(Exception):
@@ -215,3 +220,135 @@ def get_link(context, share, entry):
     except (KeyError, IndexError, TypeError):
         raise ProviderError("download_link_shape") from None
     return url
+
+
+def quota(client):
+    """Return (total, used) bytes; the basis for pre-upload quota checks."""
+    data = checked(retry(lambda: client.get("https://pan.baidu.com/api/quota",
+        params={"checkfree": "1", "checkexpire": "1"})), "quota")
+    try:
+        total, used = int(data["total"]), int(data["used"])
+    except (KeyError, TypeError, ValueError):
+        raise ProviderError("quota_shape") from None
+    if total < 0 or used < 0 or used > total:
+        raise ProviderError("quota_shape")
+    return total, used
+
+
+def ensure_directory(client, path):
+    """Create remote directories level by level; rtype=3 keeps existing ones."""
+    parts = [part for part in path.split("/") if part]
+    current = ""
+    for part in parts:
+        current += "/"+part
+        checked(retry(lambda: client.post("https://pan.baidu.com/api/create",
+            params={"a": "commit"},
+            data={"path": current, "isdir": "1", "rtype": "3"},
+            headers={"Content-Type": "application/x-www-form-urlencoded"})), "remote_mkdir")
+
+
+def digest_blocks(path):
+    """Content/block/slice digests in one streaming pass; sizes come from stat."""
+    import os
+    size = os.stat(path).st_size
+    content, blocks = hashlib.md5(), []
+    with open(path, "rb") as handle:
+        remaining = SLICE_MD5_BYTES
+        slice_md5 = hashlib.md5()
+        while remaining > 0:
+            head = handle.read(min(1024*1024, remaining))
+            if not head:
+                break
+            slice_md5.update(head)
+            remaining -= len(head)
+        handle.seek(0)
+        block = hashlib.md5()
+        counted = 0
+        while True:
+            chunk = handle.read(4*1024*1024)
+            if not chunk:
+                break
+            content.update(chunk)
+            block.update(chunk)
+            counted += len(chunk)
+            if counted % SLICE == 0:
+                blocks.append(block.hexdigest())
+                block = hashlib.md5()
+    if counted % SLICE or not blocks:
+        blocks.append(block.hexdigest())
+    return size, content.hexdigest(), blocks, slice_md5.hexdigest()
+
+
+def precreate(client, path, digests, mtime):
+    """Reserve an upload; return_type 2 means the server matched a known file."""
+    size, content, blocks, slice_md5 = digests
+    data = checked(retry(lambda: client.post("https://pan.baidu.com/api/precreate",
+        data={"path": path, "size": str(size), "isdir": "0", "autoinit": "1", "rtype": "2",
+              "block_list": json.dumps(blocks, separators=(",", ":")),
+              "content-md5": content, "slice-md5": slice_md5,
+              "local_mtime": str(mtime), "local_ctime": str(mtime)},
+        headers={"Content-Type": "application/x-www-form-urlencoded"})), "upload_precreate")
+    try:
+        kind = int(data["return_type"])
+        uploadid = str(data["uploadid"])
+        pending = [int(value) for value in data["block_list"]]
+    except (KeyError, TypeError, ValueError):
+        raise ProviderError("upload_precreate_shape") from None
+    if kind == 2:
+        return {"rapid": True}
+    if kind != 1 or not uploadid or any(seq not in range(len(blocks)) for seq in pending):
+        raise ProviderError("upload_precreate_shape")
+    return {"rapid": False, "uploadid": uploadid, "pending": pending}
+
+
+def upload_slice(client, uploadid, local_path, remote_path, seq, total, digests):
+    """Upload one 4 MB slice as multipart form data to the PCS endpoint."""
+    size, _, blocks, _ = digests
+    offset = seq*SLICE
+    length = size-offset if seq == total-1 else SLICE
+    boundary = "----baidudownloader"+hashlib.sha1(f"{remote_path}:{seq}".encode()).hexdigest()
+    with open(local_path, "rb") as handle:
+        handle.seek(offset)
+        remaining = length
+        hasher = hashlib.md5()
+
+        def generate():
+            nonlocal remaining
+            yield (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"slice\"\r\n"
+                   f"Content-Type: application/octet-stream\r\n\r\n").encode()
+            while remaining > 0:
+                chunk = handle.read(min(256*1024, remaining))
+                if not chunk:
+                    raise InputError("Local file shrank while uploading")
+                remaining -= len(chunk)
+                hasher.update(chunk)
+                yield chunk
+            yield f"\r\n--{boundary}--\r\n".encode()
+
+        response = client.post("https://pcs.baidu.com/rest/2.0/pcs/superfile2",
+            params={"method": "upload", "type": "tmpfile", "path": remote_path,
+                    "uploadid": uploadid, "partseq": str(seq), "app_id": PCS_APP_ID},
+            data=generate(), headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    if response.status_code >= 400:
+        raise ProviderError("upload_slice", status=response.status_code)
+    try:
+        data = response.json()
+        if int(data.get("error_code", 0)) or int(data.get("errno", 0)):
+            raise ProviderError("upload_slice", code=int(data.get("error_code") or data.get("errno")))
+    except ValueError:
+        raise ProviderError("upload_slice_shape") from None
+    if hasher.hexdigest() != blocks[seq]:
+        raise InputError("Uploaded slice digest differs from the plan")
+
+
+def finish_create(client, path, digests, uploadid, mtime):
+    """Merge uploaded slices into the final remote file; rtype=2 refuses overwrite."""
+    size, _, blocks, _ = digests
+    data = checked(retry(lambda: client.post("https://pan.baidu.com/api/create",
+        data={"path": path, "size": str(size), "isdir": "0", "rtype": "2", "uploadid": uploadid,
+              "block_list": json.dumps(blocks, separators=(",", ":")),
+              "local_mtime": str(mtime), "local_ctime": str(mtime)},
+        headers={"Content-Type": "application/x-www-form-urlencoded"})), "upload_create")
+    if not data.get("fs_id") or not data.get("path"):
+        raise ProviderError("upload_create_shape")
+    return {"fs_id": int(data["fs_id"]), "remote_path": data["path"]}

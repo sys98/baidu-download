@@ -191,3 +191,77 @@ def locked(job):
             yield
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def remote_directory(value):
+    """Remote upload roots must be absolute, normalized, and symlink-free."""
+    if not isinstance(value, str) or not value.startswith("/") or value != value.strip() or "\x00" in value:
+        raise InputError("Remote directory must be an absolute path")
+    parts = [part for part in value.split("/") if part]
+    if any(part in ("", ".", "..") for part in value.split("/")[1:]):
+        raise InputError("Remote directory contains empty or relative segments")
+    return "/"+"/".join(parts)
+
+
+def build_upload_plan(roots, directory, files):
+    """Enumerate concrete local files and map them onto the remote directory."""
+    root = remote_directory(directory)
+    entries, targets, seen_sources = [], set(), set()
+    for raw in roots:
+        source = Path(raw).expanduser()
+        if source.is_symlink():
+            raise InputError(f"Refusing symlink upload source: {source}")
+        origin = source.resolve()
+        if not origin.exists():
+            raise InputError(f"Upload path does not exist: {origin}")
+        candidates = sorted(origin.rglob("*")) if origin.is_dir() else [origin]
+        batch = [item for item in candidates if item.is_file()]
+        if not batch:
+            raise InputError(f"No files found under: {origin}")
+        for item in batch:
+            if item.is_symlink():
+                raise InputError(f"Refusing symlink upload source: {item}")
+            try:
+                relative = item.relative_to(origin) if origin.is_dir() else Path(item.name)
+            except ValueError:
+                raise InputError("Upload path escaped its root") from None
+            remote = "/".join((root, *[name(part) for part in relative.parts]))
+            key = collision_key(remote)
+            if key in targets:
+                raise InputError("Upload files collide on the same remote path")
+            targets.add(key)
+            stat = item.stat()
+            if stat.st_size < 0:
+                raise InputError("Invalid local file size")
+            entries.append({"local_path": str(item), "remote_path": remote,
+                            "size": stat.st_size, "mtime": int(stat.st_mtime)})
+        seen_sources.add(str(origin))
+    if not entries:
+        raise InputError("Select at least one file to upload")
+    core = {"schema": 1, "kind": "upload", "directory": root, "files": sorted(entries, key=lambda row: row["remote_path"])}
+    return {**core, "plan_id": digest(core), "total_bytes": sum(row["size"] for row in core["files"])}
+
+
+def validate_upload_plan(plan):
+    if plan.get("schema") != 1 or plan.get("kind") != "upload":
+        raise InputError("Unsupported upload plan version")
+    core = {key: plan[key] for key in ("schema", "kind", "directory", "files")}
+    if digest(core) != plan["plan_id"] or sum(row["size"] for row in plan["files"]) != plan["total_bytes"]:
+        raise InputError("Upload plan changed; create and review a new plan")
+    root = remote_directory(plan["directory"])
+    root_parts = PurePosixPath(root).parts
+    seen = set()
+    for row in plan["files"]:
+        if type(row["size"]) is not int or row["size"] < 0 or type(row["mtime"]) is not int:
+            raise InputError("Invalid planned upload")
+        parts = PurePosixPath(row["remote_path"]).parts
+        if len(parts) <= len(root_parts) or parts[:len(root_parts)] != root_parts or any(part in ("", ".", "..") for part in parts):
+            raise InputError("Planned remote path escaped or changed")
+        expected = "/".join((root, *[name(part) for part in parts[len(root_parts):]]))
+        key = collision_key(row["remote_path"])
+        if key in seen:
+            raise InputError("Conflicting planned upload targets")
+        seen.add(key)
+    if not seen:
+        raise InputError("Empty upload plan")
+    return plan

@@ -9,6 +9,14 @@
 - 任务修改使用 POSIX 内核锁，JSON 状态采用原子替换。最多 4 个独立会话并发。本轮传输量不包含续传前已有的字节和复用的完整文件。
 - 历史实际下载在工具打包前完成。工具验收采用离线响应和真实本地媒体校验，不应描述为重新验证了线上下载。
 
+## 上传能力（2026-11-20 增补）
+
+- 用户需求：支持上传到指定目录、上传前校验额度。实现为 `upload-plan` / `upload` 两条命令，沿用审阅-确认流程；额度在 plan 时和 upload 启动前各查一次（`api/quota`），不足即拒绝。
+- 上传协议（precreate/superfile2/create、4MB 分片、slice-md5=前 256KB 的 MD5、block_list=逐片 MD5）实现时对照固定版本 qjfoidnh/BaiduPCS-Go@d827497（Apache-2.0）核对；该参考仅作数据，运行时不请求。上传端点 `pcs.baidu.com` 已在既有 HTTPS 域名白名单内。
+- 覆盖语义：precreate/create 用 `rtype=2`（同名冲突即失败，绝不静默覆盖）；mkdir 用 `rtype=3`（存在即保留）。符号链接、`..`、非绝对远程路径在计划期拒绝。
+- 上传协议未做真实账号线上验证，仅有 mock 测试（tests/test_upload.py，11 项）。首次真实使用若失败，优先核对：superfile2 的 `app_id=250528` cookie 模式是否仍被接受、`User-Agent: netdisk` 是否够用、precreate 是否必须走 `/xpan/file` 而非 `/api/precreate`（OpenList 新代码用 xpan 路径，BaiduPCS-Go 用 api 路径，两者都公开存在）。
+- `upload_slice` 的流式上传依赖 requests 对 generator body 的分块传输；测试里 mock post 必须消费 generator 才会触发哈希校验。
+
 ## 仓库发布
 
 - 用户授权在完善 README 后发布到 https://github.com/sys98/baidu-download 。仓库最初为空、公开，初始分支为 `main`。

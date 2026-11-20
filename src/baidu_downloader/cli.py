@@ -259,6 +259,161 @@ def verify(args):
     return 1 if problems else 0
 
 
+def upload_plan(args):
+    plan = model.build_upload_plan(args.paths, args.remote_dir, None)
+    model.validate_upload_plan(plan)
+    model.write(args.job/"plan.json", plan)
+    client = api.session(*credentials())
+    try:
+        total, used = api.quota(client)
+    finally:
+        client.close()
+    free = total-used
+    sufficient = free >= plan["total_bytes"]
+    lines = ["# Exact upload plan", "", f"Plan: {plan['plan_id']}", f"Remote directory: {plan['directory']}",
+             f"Files: {len(plan['files'])}; bytes: {plan['total_bytes']:,}", "",
+             f"Quota: total {total:,} bytes; used {used:,} bytes; free {free:,} bytes",
+             ("Quota is SUFFICIENT for this plan." if sufficient
+              else f"Quota is INSUFFICIENT: free {free:,} bytes < planned {plan['total_bytes']:,} bytes; upload will refuse to start"), "",
+             "Files:", ""]
+    lines += [f"- {row['size']:,} bytes | {row['local_path']} -> {row['remote_path']}" for row in plan["files"]]
+    lines += ["", f"Confirm only this scope with: UPLOAD {plan['plan_id']}"]
+    (args.job/"plan-review.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
+    emit("plan_ready", plan_id=plan["plan_id"], kind="upload", files=len(plan["files"]), bytes=plan["total_bytes"],
+         quota_total=total, quota_used=used, quota_free=free, quota_sufficient=sufficient, review=str(args.job/"plan-review.md"))
+    return 0
+
+
+def upload_receipt(job, plan, entry):
+    return job/"upload-receipts"/plan["plan_id"]/(model.digest(entry)+".json")
+
+
+def run_upload(job, plan, client, workers):
+    """Upload confirmed files serially; slices within a file run in parallel."""
+    if type(workers) is not int or not 1 <= workers <= 4:
+        raise InputError("Worker count must be between 1 and 4")
+    stop, mutex = threading.Event(), threading.Lock()
+    stats = {"uploaded_bytes": 0, "completed_files": 0, "failed_files": 0, "slices_done": 0, "slices_total": 0, "current": None}
+
+    def snapshot(state="running"):
+        record = {"plan_id": plan["plan_id"], "kind": "upload", "state": state, "updated_at_epoch": time.time(),
+                  "pid": os.getpid(), "planned_files": len(plan["files"]), "planned_bytes": plan["total_bytes"],
+                  "completed_files": stats["completed_files"], "failed_files": stats["failed_files"],
+                  "uploaded_bytes": stats["uploaded_bytes"], "slices_done": stats["slices_done"],
+                  "slices_total": stats["slices_total"], "current": stats["current"]}
+        model.write(job/"status.json", record)
+        emit("progress", **record)
+
+    state = "complete"
+    try:
+        api.ensure_directory(client, plan["directory"])
+        for entry in plan["files"]:
+            if stop.is_set():
+                state = "requires_attention"
+                break
+            marker = upload_receipt(job, plan, entry)
+            saved = model.read(marker) if marker.exists() else {}
+            if saved.get("state") == "complete":
+                with mutex:
+                    stats["completed_files"] += 1
+                    snapshot()
+                continue
+            with mutex:
+                stats["current"] = entry["remote_path"]
+                snapshot()
+            try:
+                digests = api.digest_blocks(entry["local_path"])
+                if digests[0] != entry["size"]:
+                    raise InputError("Local file changed since the plan was created")
+                pre = api.precreate(client, entry["remote_path"], digests, entry["mtime"])
+                if pre["rapid"]:
+                    result = {"fs_id": None, "remote_path": entry["remote_path"], "rapid": True}
+                    with mutex:
+                        stats["uploaded_bytes"] += entry["size"]
+                else:
+                    count = len(digests[2])
+                    with mutex:
+                        stats["slices_total"] += len(pre["pending"])
+                    errors = []
+
+                    def slice_worker(seq):
+                        if stop.is_set():
+                            return
+                        api.retry(lambda: api.upload_slice(client, pre["uploadid"], entry["local_path"], entry["remote_path"], seq, count, digests))
+                        with mutex:
+                            stats["slices_done"] += 1
+                            stats["uploaded_bytes"] += min(api.SLICE, entry["size"]-seq*api.SLICE)
+
+                    executor = ThreadPoolExecutor(max_workers=workers)
+                    try:
+                        futures = [executor.submit(slice_worker, seq) for seq in pre["pending"]]
+                        for future in futures:
+                            future.result()
+                    except Exception as error:
+                        errors.append(error)
+                        if isinstance(error, api.ProviderError):
+                            stop.set()
+                    finally:
+                        executor.shutdown(wait=True, cancel_futures=True)
+                    if errors:
+                        raise errors[0]
+                    result = api.finish_create(client, entry["remote_path"], digests, pre["uploadid"], entry["mtime"])
+                receipt = {"identity": {"plan_id": plan["plan_id"], "file": entry}, "state": "complete",
+                           "fs_id": result.get("fs_id"), "remote_path": result["remote_path"],
+                           "bytes": entry["size"], "rapid": bool(pre["rapid"])}
+                model.write(marker, receipt)
+                with mutex:
+                    stats["completed_files"] += 1
+                    snapshot()
+            except Exception:
+                with mutex:
+                    stats["failed_files"] += 1
+                raise
+    except KeyboardInterrupt:
+        state = "interrupted"
+    except Exception:
+        state = "requires_attention"
+    finally:
+        client.close()
+        if state == "complete" and stats["completed_files"] != len(plan["files"]):
+            state = "requires_attention"
+        with mutex:
+            stats["current"] = None
+            snapshot(state)
+    return 0 if state == "complete" else 1
+
+
+def upload(args):
+    plan = model.validate_upload_plan(model.read(args.job/"plan.json"))
+    approval_path = args.job/"approval.json"
+    approved = model.read(approval_path) if approval_path.exists() else {}
+    if approved.get("plan_id") != plan["plan_id"]:
+        phrase = "UPLOAD "+plan["plan_id"]
+        emit("confirmation_required", phrase=phrase, kind="upload", files=len(plan["files"]), bytes=plan["total_bytes"],
+             destination=plan["directory"])
+        if (args.confirm if args.confirm is not None else input("Type the exact phrase after reviewing plan-review.md: ")) != phrase:
+            raise InputError("Scope was not confirmed; nothing uploaded")
+    pending = [entry for entry in plan["files"]
+               if not (upload_receipt(args.job, plan, entry).exists()
+                       and model.read(upload_receipt(args.job, plan, entry)).get("state") == "complete")]
+    remaining = sum(entry["size"] for entry in pending)
+    if not pending:
+        emit("upload_complete", plan_id=plan["plan_id"], files=len(plan["files"]))
+        return 0
+    # Quota is re-checked at upload time so plans approved earlier cannot outrun a filled account.
+    client = api.session(*credentials())
+    try:
+        total, used = api.quota(client)
+        free = total-used
+        if free < remaining:
+            raise InputError(f"Insufficient quota: free {free:,} bytes < remaining {remaining:,} bytes; nothing uploaded")
+        emit("quota_checked", free=free, remaining=remaining)
+        model.write(approval_path, {"plan_id": plan["plan_id"], "confirmed_at_epoch": time.time(), "kind": "upload"})
+        return run_upload(args.job, plan, client, args.workers)
+    finally:
+        client.close()
+
+
 def parser():
     root = argparse.ArgumentParser(description="Review-first Baidu share video and cover downloader (macOS/Linux).")
     root.add_argument("--version", action="version", version=__version__)
@@ -274,6 +429,14 @@ def parser():
     item.add_argument("--selection", type=Path)
     item.add_argument("--destination", type=Path, required=True)
     item.add_argument("--job", type=Path, required=True)
+    item = commands.add_parser("upload-plan", help="Enumerate local files for upload and check quota")
+    item.add_argument("--paths", type=Path, nargs="+", required=True, help="Local files or directories to upload")
+    item.add_argument("--remote-dir", required=True, help="Absolute remote directory that will receive the files")
+    item.add_argument("--job", type=Path, required=True)
+    item = commands.add_parser("upload", help="Confirm exact scope, check quota again, upload or resume")
+    item.add_argument("--job", type=Path, required=True)
+    item.add_argument("--workers", type=int, choices=range(1, 5), default=4)
+    item.add_argument("--confirm", help="Exact displayed UPLOAD phrase for a previously human-reviewed scope")
     item = commands.add_parser("download", help="Confirm exact scope, download or resume")
     item.add_argument("--job", type=Path, required=True)
     item.add_argument("--sources", type=Path, help="Original source input, used only to supply extraction codes in memory")
@@ -306,7 +469,8 @@ def main(argv=None):
         if args.command == "scan" and args.url and not args.title:
             raise InputError("--title is required for a single share")
         with model.locked(args.job):
-            return {"scan": scan, "plan": prepare, "download": download, "verify": verify}[args.command](args) or 0
+            return {"scan": scan, "plan": prepare, "download": download, "verify": verify,
+                    "upload-plan": upload_plan, "upload": upload}[args.command](args) or 0
     except (Exception, KeyboardInterrupt) as error:
         info = {"error_type": type(error).__name__}
         if isinstance(error, api.ProviderError):

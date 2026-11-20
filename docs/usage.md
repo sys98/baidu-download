@@ -116,6 +116,25 @@ gh api 'repos/OpenListTeam/openlist-baidushare-plugin/contents/helper.go?ref=851
 
 退出码 `0` 表示本次命令成功，`1` 表示存在未完成工作或错误；命令语法不正确时由 argparse 返回 `2`。脱敏后的逐文件失败信息保存在 `status.json`。
 
+## 上传到指定目录
+
+上传使用与下载一致的审阅流程，并按需求在两个时点校验额度。
+
+```sh
+baidu-download upload-plan --paths ./media/剧名 --remote-dir /来自下载工具/剧名 --job ./upjob
+# 打开 upjob/plan-review.md：确切文件清单、字节总数、当前额度余量。
+baidu-download upload --job ./upjob
+```
+
+- `upload-plan` 枚举本地文件（目录会递归展开，保留相对结构），生成上传计划并即时查询一次额度；余量不足会直接写入审阅文件，提示 `INSUFFICIENT`。
+- `upload` 需要输入显示的 `UPLOAD <plan_id>` 确认短语，然后**再次**查询额度，`free < remaining` 时拒绝启动、不发起任何上传。
+- 远程目录不存在时逐级创建；同名远程文件不会被覆盖（`rtype=2` 拒绝覆盖语义，服务端返回冲突错误时如实报告）。
+- 文件按 4 MB 分片并行上传（最多 4 线程），逐片校验 MD5，完成后由服务端按分片列表合并，收据记录 `fs_id`。服务端识别到相同内容时会发生秒传（`rapid`），此时不消耗分片流量。
+- 已完成的文件在重跑时直接跳过；本地文件在计划生成后发生变化（大小或内容）会被拒绝。
+- 上传源与目标同样受安全约束：拒绝符号链接、绝对化远程路径、拒绝 `..`；凭证与签名地址不写入报告。
+
+上传协议参考（`api/quota`、`api/precreate`、`pcs/superfile2`、`api/create`、分片与 slice-md5 语义）来自[固定版本的 BaiduPCS-Go](https://github.com/qjfoidnh/BaiduPCS-Go/tree/d827497caf359671eb4d21fac07ec3ac09d889e0)（Apache-2.0），作为公开数据在实现时核对，运行时不请求、不执行该源码。
+
 ## Python 调用与测试
 
 公开函数接收普通字典及调用方持有的会话。可使用 `api.session`、`api.scan_share`、`model.groups`、`model.build_plan` 和 `model.validate_plan` 完成发现与计划生成。`cli.run_download` 仅用于执行**已经人工确认**的计划；调用方还必须像 `cli.download` 一样落实批准检查和实时源文件核对。希望由工具完整负责这些步骤时，请使用命令行入口。
